@@ -1,0 +1,10 @@
+# ignore directories
+
+.pytest_cache/
+.vscode/
+.idea/
+__pycache__/
+checkpoint/
+debug/
+FineHARD/
+outputs/
