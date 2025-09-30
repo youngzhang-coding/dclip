@@ -4,7 +4,7 @@ from models.diffusion import FrozenDiffusionWrapper
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Union
-from models.utils import extract_tokens_by_regions_batch, create_masks_from_regions, flatten_and_pad_regions
+from models.utils import extract_tokens_by_regions_batch, create_masks_from_regions, flatten_and_pad_regions, memory_tracker
 
 Box = Union[Tuple[float, float, float, float], torch.Tensor]
 
@@ -105,7 +105,8 @@ class DCLIP(nn.Module):
 
         out_flat, attn_mask, splits, _ = flatten_and_pad_regions(regions_per_image)
         
-        images_repeated = vae_inputs.repeat_interleave(torch.tensor(splits, device=vae_inputs.device), dim=0)
+        with memory_tracker("repeat_interleave"):
+            images_repeated = vae_inputs.repeat_interleave(torch.tensor(splits, device=vae_inputs.device), dim=0)
 
         masks = create_masks_from_regions(regions=boxes, image_size=(H, W))
         

@@ -1,6 +1,8 @@
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from typing import Iterable, List, Sequence, Tuple, Union
+from contextlib import contextmanager
+import datetime
 
 # Types
 Box = Union[Sequence[float], torch.Tensor]  # (x1, y1, x2, y2)
@@ -351,3 +353,48 @@ def flatten_and_pad_regions(regions_per_image) -> tuple[torch.Tensor, torch.Tens
     # Build mask: True for valid tokens, False for padding
     mask = torch.arange(max_N, device=device).unsqueeze(0) < lengths.unsqueeze(1)  # (M, max_N)
     return x, mask, splits, lengths.tolist()
+
+@contextmanager
+def memory_tracker(name="process", log_file=None, detailed=True):
+    """
+    Context manager to track CUDA memory usage.
+    Args:
+        name (str): Name for the report.
+        log_file (str or None): If provided, append the report to this file.
+        detailed (bool): If True, include peak and timestamp.
+    """
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+    start_time = datetime.datetime.now()
+    start_allocated = torch.cuda.memory_allocated()
+    start_reserved = torch.cuda.memory_reserved()
+    start_peak_allocated = torch.cuda.max_memory_allocated()
+    start_peak_reserved = torch.cuda.max_memory_reserved()
+
+    yield
+
+    torch.cuda.synchronize()
+    end_time = datetime.datetime.now()
+    end_allocated = torch.cuda.memory_allocated()
+    end_reserved = torch.cuda.memory_reserved()
+    end_peak_allocated = torch.cuda.max_memory_allocated()
+    end_peak_reserved = torch.cuda.max_memory_reserved()
+
+    report_lines = [
+        f"[{name}]",
+        f"  Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"  End Time:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"  Allocated:  {start_allocated} -> {end_allocated} (Δ {end_allocated - start_allocated})",
+        f"  Reserved:   {start_reserved} -> {end_reserved} (Δ {end_reserved - start_reserved})",
+    ]
+    if detailed:
+        report_lines += [
+            f"  Peak Allocated: {start_peak_allocated} -> {end_peak_allocated} (Δ {end_peak_allocated - start_peak_allocated})",
+            f"  Peak Reserved:  {start_peak_reserved} -> {end_peak_reserved} (Δ {end_peak_reserved - start_peak_reserved})",
+        ]
+    report = "\n".join(report_lines)
+
+    print(report)
+    if log_file is not None:
+        with open(log_file, "a") as f:
+            f.write(report + "\n")

@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("--val_tar", type=str, default=None, help="Validation tar (optional)")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=8)
+    # top_k for train stablity and memory saving
     parser.add_argument("--top_k", type=int, default=5, help="Number of top detections to use from the object detector")
 
     # Model
