@@ -12,6 +12,7 @@ if MODELS_DIR not in sys.path:
 from models.utils import (
     _iou_mat,
     _grid_boxes,
+    _format_bytes,
     iou,
     check,
     ids_in_region,
@@ -277,3 +278,24 @@ def test_extract_tokens_background_union_after_multiple_regions():
     )
     # Background should be the remaining {2,3}
     assert torch.equal(groups[-1]["patch_ids"], torch.tensor([2, 3], dtype=torch.long))
+
+
+def test_format_bytes_units():
+    """Test that _format_bytes correctly formats bytes to human-readable units"""
+    # Test basic units
+    assert _format_bytes(0) == "    0.00 B"
+    assert _format_bytes(512) == "  512.00 B"
+    assert _format_bytes(1024) == "    1.00 KB"
+    assert _format_bytes(1048576) == "    1.00 MB"
+    assert _format_bytes(1073741824) == "    1.00 GB"
+    
+    # Test fractional values
+    assert _format_bytes(1536) == "    1.50 KB"
+    assert _format_bytes(268435456) == "  256.00 MB"
+    
+    # Test negative values
+    assert _format_bytes(-1024) == "   -1.00 KB"
+    
+    # Test edge cases
+    assert _format_bytes(1023) == " 1023.00 B"
+    assert _format_bytes(1025) == "    1.00 KB"
