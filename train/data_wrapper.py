@@ -5,6 +5,7 @@ from torch.utils.data import (
     IterableDataset,
     default_collate,
 )
+import numpy as np
 import webdataset as wd
 import io
 from PIL import Image
@@ -22,7 +23,7 @@ from diffusers.image_processor import VaeImageProcessor
 
 
 class WebDatasetWrapper(IterableDataset):
-    def __init__(self, tar_path, decode_fn, shuffle=False, resampled=False):
+    def __init__(self, tar_path, decode_fn, shuffle=False, resampled=False, top_k=5):
         super().__init__()
         self.tar_path = tar_path
         self.shuffle = shuffle
@@ -31,6 +32,7 @@ class WebDatasetWrapper(IterableDataset):
         self.dataset = None # lazy initialize
         if self.decode_fn is None:
             raise ValueError("decode_fn must be provided")
+        self.top_k = top_k
 
     def _init_dataset(self):
         dataset = wd.WebDataset(
@@ -49,7 +51,7 @@ class WebDatasetWrapper(IterableDataset):
             self._init_dataset()
         for sample in self.dataset:
             image = Image.open(io.BytesIO(sample.get("img")))
-            det = self.decode_fn(sample.get("det.pb"))
+            det = self.decode_fn(sample.get("det.pb"), top_k=self.top_k)
 
             text_raw = sample.get("txt")
             if text_raw is None:
@@ -63,7 +65,7 @@ class WebDatasetWrapper(IterableDataset):
 
 class WebDatasetDataModule(pl.LightningDataModule):
     def __init__(
-        self, train_tar, val_tar, batch_size, num_workers=4, collate_fn=default_collate
+        self, train_tar, val_tar, batch_size, num_workers=4, collate_fn=default_collate, top_k=5
     ):
         super().__init__()
         self.train_tar = train_tar
@@ -71,9 +73,10 @@ class WebDatasetDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.collate_fn = collate_fn
+        self.top_k = top_k
 
     def train_dataloader(self):
-        dataset = WebDatasetWrapper(self.train_tar, decode_detection, shuffle=True)
+        dataset = WebDatasetWrapper(self.train_tar, decode_detection, shuffle=True, top_k=self.top_k)
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -84,7 +87,7 @@ class WebDatasetDataModule(pl.LightningDataModule):
     def val_dataloader(self):
         if self.val_tar is None:
             return None
-        dataset = WebDatasetWrapper(self.val_tar, decode_detection, shuffle=False)
+        dataset = WebDatasetWrapper(self.val_tar, decode_detection, shuffle=False, top_k=self.top_k)
         return DataLoader(
             dataset,
             batch_size=self.batch_size,
@@ -93,7 +96,7 @@ class WebDatasetDataModule(pl.LightningDataModule):
         )
 
 
-def decode_detection(payload: bytes) -> dict:
+def decode_detection(payload: bytes, top_k = 5) -> dict:
     text = payload.decode("utf-8").strip()
     if not text:
         return {"labels": [], "scores": [], "boxes": []}
@@ -106,6 +109,14 @@ def decode_detection(payload: bytes) -> dict:
         labels.append(label)
         scores.append(float(score_str))
         boxes.append(ast.literal_eval(box_str))
+
+    # Apply top-k filtering if there are too many boxes
+    if scores and len(scores) > top_k:
+        sorted_idx = np.argsort(scores)[::-1][:top_k]
+        labels = [labels[i] for i in sorted_idx]
+        scores = [scores[i] for i in sorted_idx]
+        boxes = [boxes[i] for i in sorted_idx]
+        
     return {"labels": labels, "scores": scores, "boxes": boxes}
 
 
@@ -116,13 +127,14 @@ def _custom_collate_fn(batch):
     return {"images": images, "dets": dets, "texts": texts}
 
 
-def get_datamodule(tar_path, batch_size, num_workers=4):
+def get_datamodule(tar_path, batch_size, num_workers=4, top_k=5):
     return WebDatasetDataModule(
         tar_path,
         None,
         batch_size,
         num_workers=num_workers,
         collate_fn=_custom_collate_fn,
+        top_k=top_k,
     )
 
 _vae_processor = None

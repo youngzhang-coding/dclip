@@ -21,15 +21,16 @@ class FrozenDiffusionWrapper(nn.Module):
     def __init__(self, model_id="runwayml/stable-diffusion-v1-5", device="cuda"):
         super().__init__()
         self.pipe = DiffusionPipeline.from_pretrained(
-            model_id, torch_dtype=torch.float16, safe_checker=None,
+            model_id, dtype=torch.float16, safety_checker=None,
         ).to(device)
         self.device = device
 
         # Drop components we don't use
-        del self.pipe.text_encoder
-        del self.pipe.tokenizer
-        del self.pipe.feature_extractor
-        del self.pipe.image_encoder
+        unused = {"text_encoder", "tokenizer", "feature_extractor", "image_encoder"}
+        if hasattr(self.pipe, "components"):
+            for name in unused:
+                if name in self.pipe.components:
+                    self.pipe.components.pop(name)
 
         self.vae = self.pipe.vae
         self.unet = self.pipe.unet

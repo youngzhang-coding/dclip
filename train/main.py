@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument("--val_tar", type=str, default=None, help="Validation tar (optional)")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=8)
+    parser.add_argument("--top_k", type=int, default=5, help="Number of top detections to use from the object detector")
 
     # Model
     parser.add_argument("--embed_dim", type=int, default=768)
@@ -100,12 +101,14 @@ def build_datamodule(args):
             val_tar=args.val_tar,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
+            top_k=args.top_k,
         )
     else:
         return get_datamodule(
             tar_path=args.train_tar,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
+            top_k=args.top_k,
         )
 
 
