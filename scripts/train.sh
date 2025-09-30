@@ -15,7 +15,7 @@ source ~/anaconda3/etc/profile.d/conda.sh
 conda activate pytorch # Change to your conda environment name
 
 export PYTHONPATH=$PARENT_DIR
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0
 
 torchrun --nproc_per_node=1 \
     $PARENT_DIR/train/main.py \

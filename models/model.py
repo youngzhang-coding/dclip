@@ -4,9 +4,15 @@ from models.diffusion import FrozenDiffusionWrapper
 import torch
 import torch.nn as nn
 from typing import List, Tuple, Union
-from models.utils import extract_tokens_by_regions_batch, create_masks_from_regions, flatten_and_pad_regions, memory_tracker
+from models.utils import (
+    extract_tokens_by_regions_batch,
+    create_masks_from_regions,
+    flatten_and_pad_regions,
+    memory_tracker,
+)
 
 Box = Union[Tuple[float, float, float, float], torch.Tensor]
+
 
 class DCLIP(nn.Module):
     """
@@ -15,6 +21,7 @@ class DCLIP(nn.Module):
     patch membership. We enforce disjoint partitions (earliest region wins) and
     rebuild background accordingly.
     """
+
     def __init__(
         self,
         embed_dim: int,
@@ -57,22 +64,26 @@ class DCLIP(nn.Module):
         self.patch_grid = image_resolution // vision_patch_size
         self.normalized = normalized
         self.region_iou_threshold = region_iou_threshold
-    
+
     def enable_gradient_checkpointing(self):
         self.clip.enable_gradient_checkpointing()
-    
+
     def disable_gradient_checkpointing(self):
         self.clip.disable_gradient_checkpointing()
-        
+
     def set_num_checkpoint_segments(self, num_segments: int):
         self.clip.set_num_checkpoint_segments(num_segments)
-        
-    def _prepare_regions_per_image(self, groups_batch: List[List[dict]]) -> List[List[torch.Tensor]]:
+
+    def _prepare_regions_per_image(
+        self, groups_batch: List[List[dict]]
+    ) -> List[List[torch.Tensor]]:
         regions_per_image = []
-        for groups in groups_batch: # group keys: 'type', 'index', 'box', 'patch_ids', 'tokens'
+        for (
+            groups
+        ) in groups_batch:  # group keys: 'type', 'index', 'box', 'patch_ids', 'tokens'
             regions = []
             for g in groups:
-                tokens = g['tokens']
+                tokens = g["tokens"]
                 regions.append(tokens)
             regions_per_image.append(regions)
         return regions_per_image
@@ -90,7 +101,7 @@ class DCLIP(nn.Module):
         tokens = clip_out.tokens
         B, N, C = tokens.shape
         H = W = self.image_resolution
-        assert N == self.patch_grid ** 2, f"Expected {self.patch_grid**2} tokens, got {N}"
+        assert N == self.patch_grid**2, f"Expected {self.patch_grid**2} tokens, got {N}"
 
         groups_batch = extract_tokens_by_regions_batch(
             image_features=tokens,
@@ -104,15 +115,44 @@ class DCLIP(nn.Module):
         regions_per_image = self._prepare_regions_per_image(groups_batch)
 
         out_flat, attn_mask, splits, _ = flatten_and_pad_regions(regions_per_image)
-        
-        images_repeated = vae_inputs.repeat_interleave(torch.tensor(splits, device=vae_inputs.device), dim=0)
 
+        splits_tensor = torch.tensor(
+            splits, device=vae_inputs.device
+        )  # (B,) each element is num regions in that image
+        cum_starts = torch.cumsum(
+            torch.cat(
+                [torch.tensor([0], device=vae_inputs.device), splits_tensor[:-1]]
+            ),
+            dim=0,
+        )  # (B,)
+        total_regions = splits_tensor.sum().item()
         masks = create_masks_from_regions(regions=boxes, image_size=(H, W))
-        
-        diffusion_loss = self.diffusion(images=images_repeated, masks=masks, context=out_flat, context_mask=attn_mask)
+        diffusion_loss = 0.0
+        for i in range(B):
+            ki = splits_tensor[i].item()
+            if ki == 0:
+                continue  # no regions for this image
+            start = cum_starts[i].item()
+            end = start + ki
+            images_i = vae_inputs[i : i + 1].repeat_interleave(
+                ki, dim=0
+            )  # (ki, 3, H, W)
+            masks_i = masks[start:end]  # (ki, 1, H, W)
+            context_i = out_flat[start:end]  # (ki, C)
+            context_mask_i = attn_mask[start:end]  # (ki, L)
+            loss_i = self.diffusion(
+                images=images_i,
+                masks=masks_i,
+                context=context_i,
+                context_mask=context_mask_i,
+            )
+            diffusion_loss += loss_i * ki / total_regions
 
-        loss = self.contrastive_loss_weight * contrastive_loss + self.diffusion_loss_weight * diffusion_loss
-        
+        loss = (
+            self.contrastive_loss_weight * contrastive_loss
+            + self.diffusion_loss_weight * diffusion_loss
+        )
+
         return {
             "loss": loss,
             "contrastive_loss": contrastive_loss,
