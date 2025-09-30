@@ -354,6 +354,13 @@ def flatten_and_pad_regions(regions_per_image) -> tuple[torch.Tensor, torch.Tens
     mask = torch.arange(max_N, device=device).unsqueeze(0) < lengths.unsqueeze(1)  # (M, max_N)
     return x, mask, splits, lengths.tolist()
 
+def _format_bytes(size):
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if abs(size) < 1024.0:
+            return f"{size:8.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} PB"
+
 @contextmanager
 def memory_tracker(name="process", log_file=None, detailed=True):
     """
@@ -382,15 +389,15 @@ def memory_tracker(name="process", log_file=None, detailed=True):
 
     report_lines = [
         f"[{name}]",
-        f"  Start Time: {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"  End Time:   {end_time.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"  Allocated:  {start_allocated} -> {end_allocated} (Δ {end_allocated - start_allocated})",
-        f"  Reserved:   {start_reserved} -> {end_reserved} (Δ {end_reserved - start_reserved})",
+        f"  Start Time:      {start_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"  End Time:        {end_time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"  Allocated:       {_format_bytes(start_allocated)} -> {_format_bytes(end_allocated)} (Δ {_format_bytes(end_allocated - start_allocated)})",
+        f"  Reserved:        {_format_bytes(start_reserved)} -> {_format_bytes(end_reserved)} (Δ {_format_bytes(end_reserved - start_reserved)})",
     ]
     if detailed:
         report_lines += [
-            f"  Peak Allocated: {start_peak_allocated} -> {end_peak_allocated} (Δ {end_peak_allocated - start_peak_allocated})",
-            f"  Peak Reserved:  {start_peak_reserved} -> {end_peak_reserved} (Δ {end_peak_reserved - start_peak_reserved})",
+            f"  Peak Allocated:  {_format_bytes(start_peak_allocated)} -> {_format_bytes(end_peak_allocated)} (Δ {_format_bytes(end_peak_allocated - start_peak_allocated)})",
+            f"  Peak Reserved:   {_format_bytes(start_peak_reserved)} -> {_format_bytes(end_peak_reserved)} (Δ {_format_bytes(end_peak_reserved - start_peak_reserved)})",
         ]
     report = "\n".join(report_lines)
 
